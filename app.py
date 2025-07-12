@@ -1,36 +1,73 @@
-from telegram.ext import MessageHandler, Filters
-from gpt_vision import analyze_image_with_gpt
+import requests
+import base64
+import json
+from telegram.ext import Updater, MessageHandler, Filters
+from telegram import Update
+from telegram.ext import CallbackContext
+from config import OPENAI_API_KEY, BOT_TOKEN, OWNER_ID
 
-def handle_image(update, context):
+# Fungsi analisis dengan GPT-4o
+def analyze_image_with_gpt(image_path):
+    with open(image_path, "rb") as img:
+        base64_image = base64.b64encode(img.read()).decode('utf-8')
+
+    headers = {
+        "Authorization": f"Bearer {OPENAI_API_KEY}",
+        "Content-Type": "application/json"
+    }
+
+    data = {
+        "model": "gpt-4o",
+        "messages": [
+            {
+                "role": "system",
+                "content": "Anda adalah AI Trader Gold tahap legenda. Apabila diberi carta, anda perlu beri analisis lengkap mengikut format God++ Mode. Gunakan semua logik teknikal multi-timeframe, candlestick, struktur, dan zon harga."
+            },
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "Sila analisis carta ini dan beri signal penuh God++ Mode."},
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:image/jpeg;base64,{base64_image}"
+                        }
+                    }
+                ]
+            }
+        ],
+        "max_tokens": 2000
+    }
+
+    response = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=data)
+    result = response.json()
+
+    try:
+        return result["choices"][0]["message"]["content"]
+    except:
+        return "❌ Gagal analisis gambar. Pastikan carta jelas & format betul."
+
+# Fungsi bila terima gambar di Telegram
+def handle_image(update: Update, context: CallbackContext):
     if update.effective_user.id != OWNER_ID:
+        update.message.reply_text("❌ Anda tidak dibenarkan.")
         return
+
+    update.message.reply_text("📥 Carta diterima. AI sedang menganalisis...")
+
     photo_file = update.message.photo[-1].get_file()
-    file_path = "temp.jpg"
-    photo_file.download(file_path)
-    update.message.reply_text("🧠 Menganalisis carta dengan GPT-4o...")
-    result = analyze_image_with_gpt(file_path)
+    photo_file.download("temp.jpg")
+
+    result = analyze_image_with_gpt("temp.jpg")
     update.message.reply_text(result)
 
-dp.add_handler(MessageHandler(Filters.photo, handle_image))
-from telegram.ext import Updater, CommandHandler
-from config import BOT_TOKEN, OWNER_ID
-from gold_ai import analyze_market
-from utils import format_signal
+# Fungsi utama
+def main():
+    updater = Updater(token=BOT_TOKEN, use_context=True)
+    dp = updater.dispatcher
+    dp.add_handler(MessageHandler(Filters.photo, handle_image))
+    updater.start_polling()
+    updater.idle()
 
-def start(update, context):
-    if update.effective_user.id != OWNER_ID:
-        return
-    update.message.reply_text("🤖 AI Gold God++ Mode aktif. Hantar /signal untuk analisis.")
-
-def signal(update, context):
-    if update.effective_user.id != OWNER_ID:
-        return
-    result = analyze_market()
-    update.message.reply_text(format_signal(result))
-
-updater = Updater(BOT_TOKEN, use_context=True)
-dp = updater.dispatcher
-dp.add_handler(CommandHandler("start", start))
-dp.add_handler(CommandHandler("signal", signal))
-updater.start_polling()
-updater.idle()
+if __name__ == "__main__":
+    main()
